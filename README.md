@@ -52,12 +52,14 @@ Im Stillstand verharrt die Spielwelt in extremer Zeitlupe (ca. 4% Geschwindigkei
 
 Das Projekt nutzt den modernen Paket- und Projektmanager [uv](https://github.com/astral-sh/uv).
 
-### Spiel starten:
+### Spiel starten
+
 ```bash
 uv run py-superhot-2d
 ```
 
-### Automatisierte Tests ausführen:
+### Automatisierte Tests ausführen
+
 ```bash
 uv run pytest
 ```
@@ -66,7 +68,7 @@ uv run pytest
 
 ## Projektstruktur
 
-```
+```text
 py-superhot-2d/
 ├── src/
 │   └── py_superhot_2d/
