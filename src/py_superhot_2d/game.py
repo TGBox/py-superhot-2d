@@ -112,6 +112,9 @@ class GameEngine:
         self.prev_mouse_pos = Vec2(pygame.mouse.get_pos())
         self.mouse_world = Vec2(self.prev_mouse_pos)
 
+        # Replay Simulation Accumulator (records only effective game time)
+        self.replay_sim_accumulator = 0.0
+
         # Setup Menus
         self._init_menus()
 
@@ -204,7 +207,15 @@ class GameEngine:
         self.weapons_world = level.weapons
         self.bullets = []
         self.particles.clear()
+        self.replay_sim_accumulator = 0.0
         self.replay.start_recording()
+        self.replay.record_frame(
+            self.player,
+            self.enemies,
+            self.bullets,
+            self.weapons_world,
+            self.particles,
+        )
 
         self.current_time_scale = TIME_SCALE_BASE
         self.target_time_scale = TIME_SCALE_BASE
@@ -296,6 +307,8 @@ class GameEngine:
                         self.restart_level()
                     elif event.key == pygame.K_ESCAPE:
                         self.set_state("menu")
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    self.advance_level()
 
             elif self.state == "campaign_win":
                 if event.type == pygame.KEYDOWN and event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_ESCAPE):
@@ -426,8 +439,11 @@ class GameEngine:
         self.particles.update(dt_effective, self.walls)
         self.ui.update_card(dt_real)
 
-        # 6. Record Replay Frame
-        if dt_effective > 0.0001:
+        # 6. Record Replay Frame based on SIMULATION time
+        self.replay_sim_accumulator += dt_effective
+        REPLAY_SAMPLE_STEP = 1.0 / 60.0
+        while self.replay_sim_accumulator >= REPLAY_SAMPLE_STEP:
+            self.replay_sim_accumulator -= REPLAY_SAMPLE_STEP
             self.replay.record_frame(
                 self.player,
                 self.enemies,
@@ -450,6 +466,14 @@ class GameEngine:
 
         # 9. Check Level Clear (All enemies killed in campaign)
         elif all(not e.is_alive for e in self.enemies):
+            # Capture final milestone snapshot
+            self.replay.record_frame(
+                self.player,
+                self.enemies,
+                self.bullets,
+                self.weapons_world,
+                self.particles,
+            )
             self.replay.start_playback()
             self.state = "replay"
 
@@ -485,6 +509,10 @@ class GameEngine:
         for y in range(0, self.vh, 48):
             pygame.draw.line(surface, COLOR_BG_GRID, (0, y), (self.vw, y), 1)
 
+        # 1b. Enemy Vision Cones (Soft tactical vision fans on the floor)
+        for enemy in self.enemies:
+            enemy.draw_vision_cone(surface, self.walls)
+
         # 2. Walls with ambient shadow
         for wall in self.walls:
             shadow = wall.inflate(4, 4)
@@ -508,14 +536,19 @@ class GameEngine:
         for b in self.bullets:
             b.draw(surface)
 
-        # 7. Player
-        self.player.draw(surface)
+        # 7. Player (with animated fists and reach arc)
+        self.player.draw(surface, enemies=self.enemies)
 
-        # 8. HUD & Crosshair
+        # 8. HUD & Crosshair with ammo pips and cooldown indicator
         w_val = self.endless_wave if self.is_endless else None
         s_val = self.endless_kills if self.is_endless else None
         self.ui.draw_hud(surface, self.player, self.current_time_scale, w_val, s_val)
-        self.ui.draw_crosshair(surface, (int(self.mouse_world.x), int(self.mouse_world.y)), self.player.target_enemy is not None)
+        self.ui.draw_crosshair(
+            surface,
+            (int(self.mouse_world.x), int(self.mouse_world.y)),
+            self.player.target_enemy is not None,
+            player=self.player,
+        )
 
     def draw_screen(self) -> None:
         """Render virtual surface scaled with aspect ratio preservation (letterboxed) to screen."""

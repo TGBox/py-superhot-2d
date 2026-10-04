@@ -17,6 +17,7 @@ from py_superhot_2d.math_utils import (
     has_line_of_sight,
     circle_rect_collision,
     resolve_circle_walls,
+    cast_vision_cone_polygon,
 )
 from py_superhot_2d.weapons import Bullet, WeaponItem, WeaponType
 from py_superhot_2d.particles import ParticleSystem
@@ -86,8 +87,32 @@ class TestMathUtils:
         assert push is not None
         assert push.x < 0  # Should push to the left away from rect
 
+    def test_vision_cone_polygon(self):
+        origin = Vec2(100, 100)
+        facing = 0.0  # Facing right (+x)
+        wall = pygame.Rect(200, 50, 40, 100)  # Wall directly in front
+        pts = cast_vision_cone_polygon(origin, facing, fov_deg=60.0, max_range=300.0, walls=[wall], num_rays=12)
+        assert len(pts) == 14  # origin + 12 rays + 1
+        # The center ray hits wall at x=200
+        center_pt = pts[7]
+        assert center_pt[0] == pytest.approx(200.0)
+
 
 class TestWeaponsAndCombat:
+    def test_punch_animation_and_cooldown(self):
+        player = Player(Vec2(100, 100))
+        assert player.get_punch_cooldown_progress() == 1.0
+        assert player.punch_anim_timer == 0.0
+
+        # Punch empty air
+        player.punch([], [], ParticleSystem())
+        assert player.punch_anim_timer > 0.0
+        assert player.get_punch_cooldown_progress() < 1.0
+
+        # Update 0.1s real time
+        player.update(0.01, 0.1, [], Vec2(200, 100))
+        assert player.punch_anim_timer < 0.16
+
     def test_bullet_wall_collision(self):
         particles = ParticleSystem()
         wall = pygame.Rect(100, 0, 50, 200)

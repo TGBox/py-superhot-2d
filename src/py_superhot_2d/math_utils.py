@@ -139,3 +139,43 @@ def resolve_circle_walls(pos: Vec2, radius: float, walls: List[pygame.Rect]) -> 
         if not collided:
             break
     return resolved
+
+
+def cast_vision_cone_polygon(
+    origin: Vec2,
+    facing_angle: float,
+    fov_deg: float,
+    max_range: float,
+    walls: List[pygame.Rect],
+    num_rays: int = 24,
+) -> List[Tuple[float, float]]:
+    """
+    Cast multiple rays across a field of view arc and return a closed polygon.
+    Ray hits are truncated by walls.
+    """
+    fov_rad = math.radians(fov_deg)
+    start_ang = facing_angle - fov_rad / 2.0
+    end_ang = facing_angle + fov_rad / 2.0
+
+    poly_pts: List[Tuple[float, float]] = [(origin.x, origin.y)]
+
+    for i in range(num_rays + 1):
+        ang = start_ang + (end_ang - start_ang) * (i / num_rays)
+        dir_vec = Vec2(math.cos(ang), math.sin(ang))
+        ray_end = origin + dir_vec * max_range
+
+        closest_pt = ray_end
+        min_t = 1.0
+
+        for wall in walls:
+            hit = ray_cast_rect(origin, ray_end, wall)
+            if hit is not None:
+                hit_pt, t, _ = hit
+                if t < min_t:
+                    min_t = t
+                    closest_pt = hit_pt
+
+        poly_pts.append((closest_pt.x, closest_pt.y))
+
+    return poly_pts
+

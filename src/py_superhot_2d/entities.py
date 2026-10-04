@@ -29,6 +29,7 @@ from py_superhot_2d.math_utils import (
     resolve_circle_walls,
     has_line_of_sight,
     ray_cast_rect,
+    cast_vision_cone_polygon,
 )
 from py_superhot_2d.audio import get_audio
 from py_superhot_2d.particles import ParticleSystem
@@ -46,6 +47,9 @@ class Player:
         self.is_alive = True
         self.equipped_weapon: Optional[WeaponItem] = None
         self.punch_cooldown = 0.0
+        self.punch_anim_timer = 0.0
+        self.punch_anim_duration = 0.16
+        self.punch_fist_side = 1  # 1 = right fist, -1 = left fist
         self.hotswitch_cooldown = 0.0
         self.burst_bullets_left = 0
         self.burst_timer = 0.0
@@ -71,6 +75,8 @@ class Player:
         # Cooldowns update with real time or effective time
         if self.punch_cooldown > 0:
             self.punch_cooldown = max(0.0, self.punch_cooldown - dt_effective)
+        if self.punch_anim_timer > 0:
+            self.punch_anim_timer = max(0.0, self.punch_anim_timer - dt_real)
         if self.hotswitch_cooldown > 0:
             self.hotswitch_cooldown = max(0.0, self.hotswitch_cooldown - dt_real)
 
@@ -88,6 +94,12 @@ class Player:
         self.pos += step
         self.pos = resolve_circle_walls(self.pos, self.radius, walls)
 
+    def get_punch_cooldown_progress(self) -> float:
+        """Returns 1.0 if punch is ready, or 0.0..1.0 recharging progress."""
+        if self.punch_cooldown <= 0:
+            return 1.0
+        return max(0.0, 1.0 - (self.punch_cooldown / PUNCH_COOLDOWN))
+
     def punch(
         self,
         enemies: List[Enemy],
@@ -99,6 +111,8 @@ class Player:
             return False
 
         self.punch_cooldown = PUNCH_COOLDOWN
+        self.punch_anim_timer = self.punch_anim_duration
+        self.punch_fist_side = -self.punch_fist_side
         hit_any = False
         forward = Vec2(math.cos(self.angle), math.sin(self.angle))
 
@@ -315,36 +329,75 @@ class Player:
 
         return best_enemy
 
-    def draw(self, surface: pygame.Surface) -> None:
-        """Render player body, hands, and held weapon."""
+    def draw(self, surface: pygame.Surface, enemies: Optional[List[Enemy]] = None) -> None:
+        """Render player body, animated hands, reach arc, and held weapon."""
         if not self.is_alive:
             return
 
         rad = self.angle
         cos_a, sin_a = math.cos(rad), math.sin(rad)
+        forward = Vec2(cos_a, sin_a)
 
-        # Hands / Fists
+        # 1. Melee Reach Arc (visualize punch / melee range)
+        is_melee_mode = (self.equipped_weapon is None or self.equipped_weapon.weapon_type == WeaponType.KATANA)
+        if is_melee_mode:
+            in_range = False
+            if enemies:
+                for e in enemies:
+                    if e.is_alive:
+                        diff = e.pos - self.pos
+                        d = diff.length()
+                        if d <= PUNCH_RANGE + e.radius:
+                            if forward.dot(diff.normalize()) > 0.35:
+                                in_range = True
+                                break
+
+            arc_color = (245, 30, 40) if in_range else (175, 180, 192, 130)
+            arc_radius = PUNCH_RANGE if self.equipped_weapon is None else 65.0
+            arc_half = 0.65
+            arc_pts = []
+            steps = 14
+            for i in range(steps + 1):
+                a = self.angle - arc_half + (2 * arc_half) * (i / steps)
+                arc_pts.append((
+                    self.pos.x + math.cos(a) * arc_radius,
+                    self.pos.y + math.sin(a) * arc_radius,
+                ))
+            if len(arc_pts) > 1:
+                arc_surf = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+                pygame.draw.lines(arc_surf, arc_color, False, arc_pts, 2 if in_range else 1)
+                surface.blit(arc_surf, (0, 0))
+
+        # 2. Hands / Fists with punch extension animation
         hand_dist = 14.0
         hand_r = 5.0
+        thrust = 0.0
+        if self.punch_anim_timer > 0:
+            prog = self.punch_anim_timer / self.punch_anim_duration
+            thrust = math.sin(prog * math.pi) * 24.0
+
+        fwd_1 = 10.0 + (thrust if self.punch_fist_side < 0 else 0.0)
+        fwd_2 = 10.0 + (thrust if self.punch_fist_side > 0 else 0.0)
+
         h1 = (
-            self.pos.x + 10 * cos_a - hand_dist * sin_a,
-            self.pos.y + 10 * sin_a + hand_dist * cos_a,
+            self.pos.x + fwd_1 * cos_a - hand_dist * sin_a,
+            self.pos.y + fwd_1 * sin_a + hand_dist * cos_a,
         )
         h2 = (
-            self.pos.x + 10 * cos_a + hand_dist * sin_a,
-            self.pos.y + 10 * sin_a - hand_dist * cos_a,
+            self.pos.x + fwd_2 * cos_a + hand_dist * sin_a,
+            self.pos.y + fwd_2 * sin_a - hand_dist * cos_a,
         )
         pygame.draw.circle(surface, COLOR_PLAYER_HANDS, (int(h1[0]), int(h1[1])), int(hand_r))
         pygame.draw.circle(surface, COLOR_PLAYER_HANDS, (int(h2[0]), int(h2[1])), int(hand_r))
 
-        # Main Body Circle
+        # 3. Main Body Circle
         pygame.draw.circle(surface, COLOR_PLAYER, (int(self.pos.x), int(self.pos.y)), int(self.radius))
 
-        # Visor / Direction notch
+        # 4. Visor / Direction notch
         notch = (self.pos.x + self.radius * cos_a, self.pos.y + self.radius * sin_a)
         pygame.draw.circle(surface, (80, 85, 95), (int(notch[0]), int(notch[1])), 4)
 
-        # Held weapon visual
+        # 5. Held weapon visual
         if self.equipped_weapon is not None:
             w_type = self.equipped_weapon.weapon_type
             w_pos = (self.pos.x + 16 * cos_a, self.pos.y + 16 * sin_a)
@@ -353,6 +406,7 @@ class Player:
                 pygame.draw.line(surface, COLOR_KATANA_BLADE, w_pos, tip, 3)
             else:
                 pygame.draw.circle(surface, COLOR_WEAPON, (int(w_pos[0]), int(w_pos[1])), 5)
+
 
 
 class Enemy:
@@ -622,3 +676,38 @@ class Enemy:
         if is_hotswitch_target:
             pygame.draw.circle(surface, COLOR_HOTSWITCH_TARGET, (int(self.pos.x), int(self.pos.y)), int(self.radius + 14), 2)
             pygame.draw.circle(surface, COLOR_HOTSWITCH_TARGET, (int(self.pos.x), int(self.pos.y)), 4)
+
+    def draw_vision_cone(self, surface: pygame.Surface, walls: List[pygame.Rect]) -> None:
+        """Render soft tactical vision cone fan reflecting sight angle and walls."""
+        if not self.is_alive:
+            return
+
+        poly_pts = cast_vision_cone_polygon(
+            origin=self.pos,
+            facing_angle=self.angle,
+            fov_deg=75.0,
+            max_range=420.0,
+            walls=walls,
+            num_rays=24,
+        )
+
+        if len(poly_pts) < 3:
+            return
+
+        # Pick color depending on AI state
+        if self.state == "engage":
+            fill_col = (245, 30, 40, 45)
+            edge_col = (245, 30, 40, 110)
+        elif self.state == "alert":
+            fill_col = (255, 175, 45, 38)
+            edge_col = (255, 175, 45, 85)
+        else:
+            # Patrol / idle
+            fill_col = (200, 205, 218, 24)
+            edge_col = (170, 175, 188, 55)
+
+        cone_surf = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        pygame.draw.polygon(cone_surf, fill_col, poly_pts)
+        pygame.draw.polygon(cone_surf, edge_col, poly_pts, 1)
+        surface.blit(cone_surf, (0, 0))
+

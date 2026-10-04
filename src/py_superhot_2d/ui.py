@@ -8,6 +8,7 @@ import pygame
 from py_superhot_2d.config import (
     COLOR_BG,
     COLOR_BG_GRID,
+    COLOR_PLAYER_HANDS,
     COLOR_UI_TEXT_DARK,
     COLOR_UI_TEXT_RED,
     COLOR_UI_ACCENT,
@@ -163,35 +164,66 @@ class UIManager:
         endless_wave: Optional[int] = None,
         endless_score: Optional[int] = None,
     ) -> None:
-        """Render minimalist tactical HUD in German."""
+        """Render enhanced minimalist tactical HUD in German."""
         sw, sh = surface.get_width(), surface.get_height()
 
-        # 1. Ammo / Weapon Indicator (Bottom-Left)
+        # 1. Weapon & Ammo Panel (Bottom-Left)
+        box_w, box_h = 280, 64
+        box_rect = pygame.Rect(24, sh - box_h - 22, box_w, box_h)
+        pygame.draw.rect(surface, (255, 255, 255), box_rect)
+        pygame.draw.rect(surface, (20, 22, 28), box_rect, 2)
+        # Accent corner mark
+        pygame.draw.rect(surface, COLOR_UI_ACCENT, pygame.Rect(box_rect.left, box_rect.top, 5, box_h))
+
         if player.equipped_weapon is not None:
             w = player.equipped_weapon
             w_name = w.name.upper()
-            if w.weapon_type == WeaponType.KATANA:
+            w_type = w.weapon_type
+            if w_type == WeaponType.KATANA:
                 ammo_str = "UNBEGRENZT"
-            elif w.weapon_type == WeaponType.BOTTLE:
+            elif w_type == WeaponType.BOTTLE:
                 ammo_str = "WURFBEREIT"
             elif w.ammo <= 0:
                 ammo_str = TEXT_HUD_EMPTY
             else:
                 ammo_str = f"{w.ammo} / {w.max_ammo}"
         else:
+            w_type = WeaponType.FISTS
             w_name = TEXT_HUD_PUNCH
-            ammo_str = "-"
+            prog = player.get_punch_cooldown_progress()
+            ammo_str = "SCHLAG BEREIT" if prog >= 1.0 else f"LÄDT... {int(prog * 100)}%"
 
-        # Panel Box Bottom-Left
-        box_rect = pygame.Rect(28, sh - 74, 210, 48)
-        pygame.draw.rect(surface, (255, 255, 255, 180), box_rect)
-        pygame.draw.rect(surface, (20, 20, 20), box_rect, 2)
+        # Draw weapon icon silhouette inside panel
+        icon_cx = box_rect.left + 42
+        icon_cy = box_rect.centery
+        if w_type == WeaponType.PISTOL:
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 14, icon_cy - 4, 22, 6))
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 10, icon_cy + 2, 7, 10))
+        elif w_type == WeaponType.SHOTGUN:
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 20, icon_cy - 4, 38, 7))
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 14, icon_cy + 3, 9, 8))
+        elif w_type == WeaponType.RIFLE:
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 22, icon_cy - 4, 42, 6))
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 6, icon_cy + 2, 6, 11))
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 16, icon_cy + 2, 7, 7))
+        elif w_type == WeaponType.KATANA:
+            pygame.draw.line(surface, (60, 65, 75), (icon_cx - 20, icon_cy + 10), (icon_cx - 10, icon_cy + 4), 3)
+            pygame.draw.line(surface, (180, 200, 225), (icon_cx - 10, icon_cy + 4), (icon_cx + 20, icon_cy - 12), 2)
+        elif w_type == WeaponType.BOTTLE:
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 6, icon_cy - 10, 12, 20))
+            pygame.draw.rect(surface, COLOR_WEAPON, (icon_cx - 2, icon_cy - 14, 4, 5))
+        else:
+            # Fists icon
+            pygame.draw.circle(surface, COLOR_PLAYER_HANDS, (icon_cx - 8, icon_cy), 7)
+            pygame.draw.circle(surface, COLOR_PLAYER_HANDS, (icon_cx + 8, icon_cy), 7)
 
-        name_surf = self.font_small.render(w_name, True, (90, 95, 105))
-        surface.blit(name_surf, (box_rect.left + 14, box_rect.top + 6))
+        # Labels
+        name_surf = self.font_small.render(w_name, True, (110, 115, 128))
+        surface.blit(name_surf, (box_rect.left + 78, box_rect.top + 10))
+
         ammo_col = COLOR_UI_TEXT_RED if ammo_str == TEXT_HUD_EMPTY else COLOR_UI_TEXT_DARK
         ammo_surf = self.font_hud.render(ammo_str, True, ammo_col)
-        surface.blit(ammo_surf, (box_rect.left + 14, box_rect.top + 22))
+        surface.blit(ammo_surf, (box_rect.left + 78, box_rect.top + 28))
 
         # 2. HOTSWITCH Cooldown Meter (Bottom-Center)
         hs_ready = player.can_hotswitch()
@@ -234,8 +266,14 @@ class UIManager:
             card_surf.blit(s_surf, s_surf.get_rect(center=(sw // 2, 85)))
             surface.blit(card_surf, (0, sh // 4))
 
-    def draw_crosshair(self, surface: pygame.Surface, mouse_pos: Tuple[int, int], has_target: bool) -> None:
-        """Render high-contrast tactical crosshair at cursor position."""
+    def draw_crosshair(
+        self,
+        surface: pygame.Surface,
+        mouse_pos: Tuple[int, int],
+        has_target: bool,
+        player=None,
+    ) -> None:
+        """Render tactical crosshair with punch cooldown ring and ammo pips directly at the cursor."""
         mx, my = mouse_pos
         col = COLOR_UI_ACCENT if has_target else (20, 22, 28)
         size = 10
@@ -247,6 +285,66 @@ class UIManager:
         pygame.draw.line(surface, col, (mx, my - size - gap), (mx, my - gap), 2)
         pygame.draw.line(surface, col, (mx, my + gap), (mx, my + size + gap), 2)
         pygame.draw.circle(surface, col, (mx, my), 1)
+
+        if player is None:
+            return
+
+        # Melee Punch Cooldown Indicator (Ring around crosshair)
+        prog = player.get_punch_cooldown_progress()
+        if prog < 1.0:
+            ring_r = 16
+            rect = pygame.Rect(mx - ring_r, my - ring_r, ring_r * 2, ring_r * 2)
+            # Recharging arc from top (pi/2) clockwise
+            sweep = prog * math.tau
+            start_ang = math.pi / 2.0 - sweep
+            end_ang = math.pi / 2.0
+            pygame.draw.arc(surface, (245, 30, 40), rect, start_ang, end_ang, 2)
+
+        # Tactical Ammo Pips under crosshair
+        if player.equipped_weapon is not None:
+            w = player.equipped_weapon
+            if w.weapon_type in (WeaponType.PISTOL, WeaponType.SHOTGUN):
+                # Draw pips: 6 for pistol, 2 for shotgun
+                pip_w = 6
+                pip_h = 3
+                spacing = 3
+                total_w = w.max_ammo * (pip_w + spacing) - spacing
+                start_x = mx - total_w // 2
+                pip_y = my + 17
+
+                for i in range(w.max_ammo):
+                    px = start_x + i * (pip_w + spacing)
+                    if i < w.ammo:
+                        pygame.draw.rect(surface, (20, 22, 28), (px, pip_y, pip_w, pip_h))
+                    else:
+                        pygame.draw.rect(surface, (180, 185, 195), (px, pip_y, pip_w, pip_h), 1)
+
+                if w.ammo == 0:
+                    empty_surf = self.font_small.render(TEXT_HUD_EMPTY, True, COLOR_UI_TEXT_RED)
+                    surface.blit(empty_surf, empty_surf.get_rect(center=(mx, my + 28)))
+
+            elif w.weapon_type == WeaponType.RIFLE:
+                # 24 rounds: draw compact ammo bar with counter
+                bar_w = 36
+                bar_h = 4
+                bar_x = mx - bar_w // 2
+                bar_y = my + 16
+                pygame.draw.rect(surface, (180, 185, 195), (bar_x, bar_y, bar_w, bar_h), 1)
+                fill_w = int((bar_w - 2) * (w.ammo / w.max_ammo))
+                if fill_w > 0:
+                    fill_col = (20, 22, 28) if w.ammo > 5 else COLOR_UI_TEXT_RED
+                    pygame.draw.rect(surface, fill_col, (bar_x + 1, bar_y + 1, fill_w, bar_h - 2))
+
+            elif w.weapon_type == WeaponType.KATANA:
+                # Katana infinity / blade indicator
+                k_surf = self.font_small.render("KATANA", True, (60, 65, 75))
+                surface.blit(k_surf, k_surf.get_rect(center=(mx, my + 18)))
+        else:
+            # Unarmed: show fist readiness dot or "FÄUSTE"
+            f_col = (20, 22, 28) if prog >= 1.0 else (180, 185, 195)
+            pygame.draw.circle(surface, f_col, (mx - 4, my + 17), 3)
+            pygame.draw.circle(surface, f_col, (mx + 4, my + 17), 3)
+
 
     def draw_game_over(self, surface: pygame.Surface) -> None:
         """Render stark Red/Black Game Over screen."""

@@ -154,20 +154,21 @@ class ReplaySystem:
             self.font_hint = pygame.font.Font(None, 28)
 
     def update_playback(self, dt: float) -> None:
-        """Step playback frame at normal 60 FPS real-time speed."""
+        """Step playback frame at fast, thrilling real-time speed."""
         if not self.frames:
             return
 
-        self.playback_timer += dt
+        playback_speed = 1.15  # Fast-paced action movie speed
+        self.playback_timer += dt * playback_speed
         frame_duration = 1.0 / 60.0
 
         while self.playback_timer >= frame_duration:
             self.playback_timer -= frame_duration
             self.playback_index = (self.playback_index + 1) % len(self.frames)
 
-        # Rhythmic SUPER... HOT... chant pulse (every 0.55s)
-        self.beat_timer += dt
-        if self.beat_timer >= 0.55:
+        # Rhythmic SUPER... HOT... chant pulse (every 0.45s)
+        self.beat_timer += dt * playback_speed
+        if self.beat_timer >= 0.45:
             self.beat_timer = 0.0
             self.beat_phase = 1 - self.beat_phase
             get_audio().play("beat", volume=0.9)
