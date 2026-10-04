@@ -1,0 +1,17 @@
+[project]
+name = "py-superhot-2d"
+version = "0.1.0"
+description = "A python adaptation of the game superhot, but in a topdown 2d-perspective."
+readme = "README.md"
+authors = [
+    { name = "Daniel Rösch", email = "droesch91@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[project.scripts]
+py-superhot-2d = "py_superhot_2d:main"
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
